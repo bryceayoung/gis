@@ -1,0 +1,201 @@
+---
+title: 'Lab #13'
+output: html_document
+date: "April 24, 2024"
+---
+
+**Download the data:**
+
+- [Missoula_City_layers_WGS84.zip](http://files.ntsg.umt.edu/data/GIS_Programming/data/Missoula_City_layers_WGS84.zip) (Unzip and extract to a multiple Shapefiles)
+
+Today's lab asks you to create maps and analyze vector data about the City of Missoula. In addition to a couple of datasets downloaded from Open Street Map, most of the data came from the City of Missoula's website, where you can also find more information:
+
+- https://missoulamaps-cityofmissoula.hub.arcgis.com/datasets/CityofMissoula::bike-facilities/about
+- https://missoulamaps-cityofmissoula.hub.arcgis.com/datasets/CityofMissoula::neighborhoods-1/about
+- https://missoulamaps-cityofmissoula.hub.arcgis.com/datasets/CityofMissoula::snow-priority/about
+- https://missoulamaps-cityofmissoula.hub.arcgis.com/datasets/CityofMissoula::transit-route-1/about
+- https://missoulamaps-cityofmissoula.hub.arcgis.com/datasets/CityofMissoula::transit-stop-1/about
+- https://missoulamaps-cityofmissoula.hub.arcgis.com/datasets/CityofMissoula::council-wards/about
+
+**The bike route (`bike.routes`) dataset has a field `BikeFacili`, which contains the following values:**
+
+- `Cycletrack` - This refers to bike lanes that are protected from traffic.
+- `Greenway` - This is the City's designation for a regular street that allegedly has lower traffic volumes and speeds; it has no bike infrastructure.
+- `Lane` - This is a bike lane, delineated by a painted stripe.
+- `Route` - This is just a regular street that may (or may not) have sharrows painted.
+
+Unfortunately, these labels are not used consistently (see Higgins Ave). Anything other than a `Cycletrack` or bike `Lane` is probably not going to feel safe for many cyclists.
+
+**The snow-removal priority route (`snow.routes`) dataset has a field `SnowPriori`, which contains the following values:**
+
+- `1` (High Priority)
+- `1-CITY` (High Priority, City-owned route)
+- `2` (Next Priority)
+- `2-CITY` (Next Priority, City-owned route)
+- `COUNTY` (County road, should be ignored for our analysis)
+- `STATE` (A State highway, should be ignored for our analysis)
+
+The reality is that unless it is a high-priority route (`1` or `1-CITY`), it's unlikely to be plowed when you need to go to work or school in the morning.
+
+```{r}
+library(dplyr, warn.conflicts = F)
+library(stringr)
+library(sf)
+library(ggplot2)
+library(units)
+options(stringsAsFactors = F)
+
+# University Oval (considered to be the center of campus)
+oval <- st_read('data/University_Oval.shp', quiet = T)
+
+# Bike routes designated by the City of Missoula
+bike.routes <- st_read('data/Bicycle_facilities_2023.shp', quiet = T)
+
+# Neighborhoods
+hoods <- st_read('data/Neighborhoods_2023.shp', quiet = T)
+
+# Natural areas (from Open Street Map)
+parks <- st_read('data/Parks_Missoula_OSM.shp', quiet = T)
+
+# Snow priority map - The order in which streets get cleared of snow
+snow.routes <- st_read('data/Snow_Priority_routes_2023.shp', quiet = T)
+
+# City Council Wards
+wards <- st_read('data/CouncilWards_MSO.shp', quiet = T)
+
+# Bus transit (Mountain Line) routes
+transit.routes <- st_read('data/Transit_routes_2023.shp', quiet = T)
+
+# Bus transit (Mountain Line) stops
+transit.stops <- st_read('data/Transit_stops_2023.shp', quiet = T)
+```
+
+
+---
+
+## Problem 13.1 - City Map
+
+Create a map of the City showing:
+
+- The Wards, colored according to the Ward number
+- The transit routes
+- Parks, shown as green dots
+
+[The map projection should be UTM Zone 11 N (WGS84).](https://epsg.io/32611)
+
+[Here's some information on different point shapes you can use in `ggplot2`.](http://www.sthda.com/english/wiki/ggplot2-point-shapes)
+
+
+
+```{r}
+
+ggplot() +
+  geom_sf(data = wards, mapping = aes(color = WardNumber)) +
+  geom_sf(data = transit.routes) +
+  geom_sf(data = st_centroid(parks), color = 'chartreuse') +
+  coord_sf(crs = st_crs(wards))
+
+
+```
+
+
+---
+
+## Problem 13.2 - Mapping Transit Density
+
+Using a geoprocessing pipeline, make a choropleth map of the number of transit stops each neighborhood, `hoods` contains.
+
+**Hint:** As a geoprocessing pipeline, you could start with either the `hoods` or `transit.stops`. Remember that the dataset you start your pipeline with is very important. In this case, the dataset you start with should be the one that has the geometry you want to show on your map.
+
+````{r}
+
+# Number of transit stops within each hood
+intersections <- st_intersects(hoods, transit.stops)
+
+stops.per.hood <- hoods %>%
+  group_by(OBJECTID) %>%
+  summarize(num_stops = sum(length(intersections)))
+
+ggplot() +
+  geom_sf(data = stops.per.hood, 
+          mapping = aes(fill = num_stops))
+
+# That didn't work, but I have to move on. Seems like each hood has the same number of stops,
+# so I probably need to rework the line where I defined the variable `intersections`
+
+```
+
+
+---
+
+## Problem 13.3 - Campus Transit Map
+
+Make a map of the bike routes and transit stops within 500 meters of the UM Oval.
+
+**Hint:** There are multiple ways to solve this problem. One way involves a spatial predicate we may not have talked about in class yet: `st_is_within_distance()`; also `st_buffer()`
+
+```{r}
+
+# Define oval buffer
+oval.buffer <- st_buffer(oval, 500) # 1640ft = 500m
+
+# Locate transit stops within buffer
+stops.500m <- st_intersects(transit.stops, oval.buffer)
+
+# Locate bike routes within buffer
+routes.500m <- st_intersects(bike.routes, oval.buffer)
+
+# Plot
+ggplot() +
+  geom_sf(data = oval) +
+  geom_sf(data = stops.500m, mapping = aes(color = 'steelblue')) +
+  geom_sf(data = routes.500m, mapping = aes(color = 'orchid'))
+
+# This plot threw an error but I have to keep moving
+
+```
+
+
+---
+
+## Problem 13.4 - Neighborhood Accessibility
+
+Let's imagine you are a consultant for the City of Missoula. The City wants to assess its neighborhoods in terms of their accessibility during heavy snow conditions. They've asked you to create a map that shows each neighborhood's "score" in terms of two criteria: 1) The length of public transit routes within the neighborhood; and 2) The length of high-priority snow-plowing routes within the neighborhood.Make sure everything is in the same CRS. May need `st_join()`
+
+**You should:**
+
+1. Compute the lengths of all the transit and high-priority snow-plowed routes. For snow-plowed routes, consider *only* routes indicated priority `1` or `1-CITY`.
+2. Figure out which (transit and snow-plow) routes are within each neighborhood.
+3. Compute the neighborhood's "score" as the *sum* of the total transit route length in the neighborhood and total high-priority plowed length.
+
+[Consult this map if you want to learn how to identify each neighborhood.](https://missoulamaps-cityofmissoula.hub.arcgis.com/datasets/CityofMissoula::neighborhoods-1/explore)
+
+**Hint:** Every layer is going to need to be in the UTM 11N projection: you're going to be calculating lengths in meters.
+
+**Hint:** You must re-group the data after any spatial join. Just remember to (re-)group your data before using `mutate()` (if applicable), `summarize()`, or any aggregation functions.
+
+
+```{r}
+
+# Compute length of high priority snow routes
+snow.len <- snow.routes %>%
+  filter(SnowPriori %in% c('1', '1-CITY')) %>%
+  summarize(sum(Shape__Len))
+
+# Compute length of transit routes
+transit.len <- transit.routes %>%
+  summarize(sum(Shape__Len))
+
+# Sum them. Total length is ~1,134km
+total.len <- transit.len$`sum(Shape__Len)` + snow.len$`sum(Shape__Len)`
+total.len
+
+# Didn't finish the lab during lab time and do not have additional time to complete it.
+```
+
+
+---
+
+## Extra Challenges
+
+- In Problem 13.4, try changing the way the length of plowed routes are calculated (and joined to neighborhoods) so that we only score routes that *cross* neighborhoods (i.e., provide a way out of the neighborhood). You may need to dissolve the `snow.routes` by the name of the street, first.

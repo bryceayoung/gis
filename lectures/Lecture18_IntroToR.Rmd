@@ -1,0 +1,21 @@
+---
+title: "Introduction to R"
+output: html_document
+date: "2024-03-28"
+---
+
+## Reading Tabular Data in R
+
+```{r}
+df <- read.csv("http://files.ntsg.umt.edu/data/GIS_Programming/data/GPPDI_ClassA_NPP_162_R2.csv")
+class(df)
+```
+
+# Commands
+Anything you do in here will be markdown by default.
+- To write in R code, slect Code > Insert Chunk
+- Or, you can simply bookend it with 3 backticks (and {r} at the beginning)
+```{r}
+
+```
+

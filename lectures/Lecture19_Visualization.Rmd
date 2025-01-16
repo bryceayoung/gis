@@ -1,0 +1,173 @@
+---
+title: "Visualization in R"
+output: html_document
+date: "April 9, 2024"
+---
+
+**Install the `ggplot2` and `RColorBrewer` packages:**
+
+```r
+install.packages(c('ggplot2', 'RColorBrewer'))
+```
+
+```{r}
+library(dplyr, warn.conflicts = F)
+library(ggplot2)
+library(RColorBrewer)
+
+npp <- read.csv("http://files.ntsg.umt.edu/data/GIS_Programming/data/GPPDI_ClassA_NPP_162_R2.csv")
+npp[npp$TEMP_ANN < -900,'TEMP_ANN'] = NA
+npp[npp$PREC_ANN < -900,'PREC_ANN'] = NA
+npp[npp$BNPP_C < -900,'BNPP_C'] = NA
+
+species <- read.csv("http://files.ntsg.umt.edu/data/GIS_Programming/data/species.csv")
+plots <- read.csv("http://files.ntsg.umt.edu/data/GIS_Programming/data/plots.csv")
+surveys <- read.csv("http://files.ntsg.umt.edu/data/GIS_Programming/data/surveys.csv")
+
+df.surveys <- surveys %>%
+  left_join(species, by = 'species_id') %>%
+  left_join(plots, by = 'plot_id')
+```
+## `ggplot2` and The Grammar of Graphics
+What is ggplot2?
+
+```{r}
+df.surveys %>%
+  head
+
+summary(df.surveys)
+
+ggplot(df.surveys, # This is the data you want to work with
+       mapping = aes(x = weight, # This is how you specifiy the axes
+                     y = hindfoot_length)) +
+  geom_point() # This is how you define the type of data plotting (add layers)
+
+```
+
+The '+' is syntax for adding layers to a plot. We start with a definition of a plot, then use + to add layers to the layout
+
+We can also create a template for a plot:
+
+```{r}
+base <- ggplot(df.surveys,
+               mapping = aes(x = weight, y = hindfoot_length))
+
+class(base)
+
+# This is the same code as what we plotted above
+base + geom_point()
+```
+We can control aspects of the styling per layer within the layer itself:
+We can also save plots as images:
+
+```{r}
+
+base + geom_point(alpha = 0.1, color = 'orchid') # We can adjust the alpha to see areas with greater data density
+
+# Mapping where colors are determined from another column (e.g. species)
+base +
+  geom_point(aes(color = species_id), alpha = 0.1)
+
+# Saving plots
+ggsave(width = 5, height = 4, dpi = 172,
+       file = 'my_plot.png')
+
+```
+
+Challenge: create a plot where the points are colored by plot type, and set the "shape" aesthetic to the "sex" column
+
+```{r}
+
+base + geom_point(aes(color = plot_type, shape = sex), alpha = 0.1)
+
+```
+Plotting time series data:
+
+We want to know how many rodents we captured each year.
+
+```{r}
+
+annual.counts <-          df.surveys %>%
+                              group_by(year, genus) %>% # Grouping by multiple columns is going to show values for every genus for each year
+                              filter(taxa == 'Rodent') %>%
+                              tally() 
+
+annual.counts <- df.surveys %>%
+  filter(taxa == 'Rodent') %>%
+  group_by(year, genus) %>%
+  summarize(count = n())
+
+annual.counts
+
+```
+
+Let's tell ggplot how to separate the data by genus
+
+```{r}
+
+ggplot(annual.counts, mapping = aes(x = year, y = count, color = genus)) +
+  geom_line()
+
+```
+
+Changing geometries
+
+```{r}
+
+ggplot(annual.counts, mapping = aes(x = year, y = count, color = genus)) +
+  geom_bar()
+
+# We get an error! Why?
+base1 <- ggplot(annual.counts, mapping = aes(x = year, y = count, fill = genus))
+
+base1 + geom_bar(stat = 'identity')
+
+# It stacks automatically. Here's what to do when we want to remove the stacking
+base1 + geom_bar(stat = 'identity', position = 'dodge')
+
+# Multiplotting / Faceting
+base1 +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  facet_wrap(~ genus) # This is how you segment subplots
+
+# Facet Grid
+
+```
+
+Coordinate systems and multiple layers
+Look at relationship between aboveground NPP and belowground NPP
+
+```{r}
+
+ggplot(npp, aes(x = ANPP_C, y = BNPP_C)) +
+  geom_point()
+
+ggplot(npp, aes(x = ANPP_C, y = BNPP_C)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, color = 'steelblue',
+              linetype = 'dashed') +
+  coord_equal(xlim = c(0,1000), ylim = c(0,1000)) # Specifies that we want to use an equal area coordinate system to force the plot to be square
+
+# Below, the geom_smooth function is too smooth, so we want to give it some other options
+ggplot(npp, aes(x = TEMP_ANN, y = TNPP_C)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(npp, aes(x = TEMP_ANN, y = TNPP_C)) +
+  geom_point() +
+  geom_smooth(method = 'lm') +
+  geom_vline(xintercept = 0)
+
+# Customizing plots
+ggplot(npp, aes(x = TEMP_ANN, y = TNPP_C,
+                color = BIOMENEW)) +
+  geom_point() +
+  geom_smooth(method = 'lm')
+
+ggplot(npp, aes(x = TEMP_ANN, y = TNPP_C)) +
+  geom_point(aes(color = BIOMENEW)) +
+  geom_smooth(method = 'lm')
+
+
+
+```

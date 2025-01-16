@@ -1,0 +1,103 @@
+---
+title: "Data Analysis with R, Part 2"
+output: html_document
+date: "April 4, 2024"
+---
+
+Today we'll wrap-up our discussion of analyzing and cleaning tabular data using `dplyr` pipelines. [We'll use data from the Data Carpentry lesson on R,](https://datacarpentry.org/R-ecology-lesson/#Download_the_data) which is a great resource for you to revisit if you want to refresh your R knowledge.
+
+**Download the data (3 CSV files):**
+
+- [surveys.zip](http://files.ntsg.umt.edu/data/GIS_Programming/data/surveys.zip)
+
+**Install the `lubridate` and `tidyr` packages:**
+
+```{r eval=FALSE}
+install.packages(c('lubridate', 'tidyr'))
+```
+
+```{r}
+surveys <- read.csv('surveys.csv')
+```
+
+How is order established in a dplyr pipeline?
+
+```{r}
+surveys %>%
+  arrange(-year) %>%
+  # arrange(desc(year)) %>% This is the same as above
+
+# We can also arrange by multiple columns
+surveys %>%
+  arrange(year, month, day) %>%
+  head
+
+# We can order rows by alphanumeric columns, too
+surveys %>%
+  arrange(species_id, year, month, day) %>%
+  head
+
+# With each species, what is the FIRST year that we caught it
+surveys %>%
+  arrange(year, month, day) %>%
+  group_by(species_id) %>%
+  summarize(year = first(year)) # The argument in summarize() needs to return a single value
+
+# Can group and then ungroup
+surveys %>%
+  arrange(year, month, day) %>%
+  group_by(species_id) %>%
+  summarize(year = first(year)) %>%
+  ungroup()
+```
+
+Working with dates and times in R
+
+```{r}
+head(surveys)
+
+date <- as.Date('2023-04-06') #ISO standard YYYY-MM-DD
+class(date)
+
+library(lubridate)
+
+?base::union
+
+make_date(2023, 4, 6)
+
+# Challenge: create a date column that combines year, month, day
+names(surveys)
+
+surveys %>%
+  mutate(date = make_date(year, month, day)) %>% # This expression make_date is done auto for every row
+  head
+
+
+# Another way to use mutate
+surveys %>%
+  mutate(hfoot_length2)
+```
+
+
+
+## Joining Tables
+
+![](relational_joins.png)
+
+In a left-join, we're keeping all rows in the left table, and adding all the rows with
+matching values in the right table.
+
+```{r}
+# These have common columns that enable us to join them by that column (species_id)
+plots <- read.csv('plots.csv')
+species <- read.csv('species.csv')
+
+surveys %>%
+  left_join(species, by = 'species_id') %>% # column name needs to be provided as a string
+  nrow
+
+surveys %>%
+  right_join(species, by = 'species_id') %>% # column name needs to be provided as a string
+  nrow
+
+```

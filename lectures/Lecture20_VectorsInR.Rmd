@@ -1,0 +1,265 @@
+---
+title: "Vector Data in R"
+output: html_document
+date: "April 16, 2024"
+---
+
+- **Install the following required packages:**
+
+```r
+install.packages(c('sf', 'stringr'))
+```
+
+- **Download the data and extract it to your current working directory:**
+  - [ne_10m_states_and_roads_MT+ID+WY.zip](http://files.ntsg.umt.edu/data/GIS_Programming/data/ne_10m_states_and_roads_MT+ID+WY.zip)
+  - [MTBS_LowerSelway_2010-2021.zip](http://files.ntsg.umt.edu/data/GIS_Programming/data/MTBS_LowerSelway_2010-2021.zip)
+  
+  
+## Introduction to Simple Features
+
+What are simple features?
+
+![](simple-features.png)
+
+
+## Reading Vector Datasets in R
+
+```{r}
+library(dplyr, warn.conflicts = F)
+library(stringr)
+library(sf)
+library(ggplot2)
+```
+```{r}
+roads <- st_read('ne_10m_roads_MT+ID+WY.shp')
+
+st_crs(roads)
+st_geometry_type(roads)
+st_bbox(roads)
+
+class(roads) # We can see this a dataframe, so we can use dplyr pipelines to work with it
+
+roads %>%
+  group_by(type) %>%
+  tally()
+```
+
+PLOTTING A SHAPEFILE
+
+```{r}
+
+ggplot() +
+  geom_sf(data = roads, aes(color = type)) +
+  coord_sf()
+
+# Challenge:
+# 1. Read in state provinces shapefile
+# 2. Add it to the plot above (as another layer)
+# 3. Experiment with options for styling
+
+states <- st_read('ne_10m_admin_1_states_provinces_MT+ID+WY.shp')
+
+ggplot() +
+  geom_sf(data = states, aes(color = postal, fill = 'orchid2'), alpha = 0.1, linewidth = 1) +
+  geom_sf(data = roads, aes(color = type)) +
+  coord_sf() + # Here is where you should specify CRS. If it's not specified, it will default to the CRS of the plot's first layer. Generally means you don't need to reproject data. Can also set xlim and ylim here.
+  theme_minimal()
+
+```
+REVIEW: mutate() and summarize()
+
+```{r}
+
+burns <- st_read('MTBS_LowerSelway_2010-2021.shp')
+
+# Create total burned acreage per year
+# We can get the year from ignition date 'Ig_Date'
+
+burns.by.year <- burns %>%
+  mutate(Year = as.numeric(str_sub(Ig_Date, 1, 4))) %>%
+  select(Incid_Name, Ig_Date, Year, BurnBndAc, geometry) %>%
+  arrange(Year)
+
+# Burns by year
+burns.by.year %>%
+  group_by(Year) %>%
+  mutate(sum(BurnBndAc)) %>%
+  head
+
+# Now we can create a union to get a **MULTIPOLYGON PER YEAR**
+ggplot() +
+  geom_sf(data = burns[1,], fill = 'orchid') + # This example just uses one fire
+  coord_sf()
+
+ggplot() +
+  geom_sf(data = burns.by.year, aes(fill = as.character(Year))) + # This example uses all fires per year
+  scale_fill_brewer(palette = 'Pastel1') + # Use these color scales - found at colorbrewer2.org
+  coord_sf() +
+  theme_minimal()
+
+ggplot() +
+  geom_sf(data = burns.by.year, fill = 'orchid') +
+  coord_sf(datum = st_crs(32611)) # Datum only affects graticule lines
+
+ggplot() +
+  geom_sf(data = burns.by.year, fill = 'orchid') +
+  coord_sf(crs = st_crs(4326)) # CRS actually projects the data
+
+# (re)projecting the data
+roads.wgs84 <- st_transform(roads, crs = st_crs(4326))
+```
+
+
+**What do we mean by "spatial extent"?**
+
+![](spatial_extent.png)
+
+
+WORKING WITH RASTERS
+```{r}
+
+library(dplyr)
+library(ggplot2)
+library(terra)
+library(terrainr)
+library(tidyr)
+
+describe('NEON_ortho.tif')
+
+#Reading in dataset from terra
+neon <- rast('NEON_ortho.tif') # This can open rasters or convert things to rasters
+
+# Specifically we're working with SpatRasters in terra
+# There are also SpatVectors
+neon
+
+summary(values(neon))
+
+neon[[1]] # This is like a list
+
+# In order to visualize rasters, we have to convert it to a dataframe
+# Because ggplot only works with dataframes
+df.neon <- as.data.frame(neon, xy = TRUE)
+class(df.neon)
+head(df.neon)
+
+ggplot() +
+  geom_raster(data = df.neon, mapping = aes(x=x, y=y, fill = NEON_ortho_1)) +
+  coord_sf()
+
+# What is the right coordinate system to use with our data?
+# The EPSG code that corresponds to the projection is the LAST one
+crs(neon)
+
+# Projecting SpatRaster or SpatVector types in terra
+# st_transform(), st_crs -- for sf Spatial Data Frames
+# Project(), crs()
+
+neon.wgs84 <- project(neon, crs('epsg:4326'))
+neon.wgs84 <- project(neon, 'epsg:4326')
+neon.wgs84
+
+# What is the resolution of our dataset
+res(neon) # 1m x 1m
+
+# Let's resample this to 10m data
+neon.10m <- project(neon, crs(neon), res = c(10, 10))
+df.neon.10m <- as.data.frame(neon.10m, xy = TRUE)
+
+# This plot shows that it is now much coarser resolution
+ggplot() +
+  geom_raster(data = df.neon.10m, aes(x=x, y=y, fill = NEON_ortho_1)) +
+  coord_sf()
+
+ggplot() + 
+  geom_histogram(data = df.neon, mapping = aes(x = NEON_ortho_1))
+
+# We want to make a plot for each one of these columns, but we ned to pivot longer
+# This is because we want a column that says column A, B, C, and they correspond to different values
+head(df.neon)
+
+# pivot_longer() or gather() -- from wide to long
+# pivot_wider() or spread() -- from long to wide
+df.neon %>%
+  gather(key = band, value = value, NEON_ortho_1:NEON_ortho_3) %>%
+  arrange(x, y) %>%
+  head
+
+df.neon.long <- df.neon %>%
+  gather(key = band, value = value, NEON_ortho_1:NEON_ortho_3)
+
+ggplot() +
+  geom_histogram(data = df.neon.long, mapping = aes(x = value)) +
+  facet_wrap(~ band)
+
+# Choosing a color ramp
+# Scale_XX_brewer = for discrete/few levels of data
+# scale_xx_distiller = for continuous color ramps, and uses the same palletes as on colorbrewer2.org
+ggplot()+
+  geom_raster(data = df.neon,
+              mapping = aes(x=x, y=y, fill = NEON_ortho_1)) +
+  coord_sf() +
+  scale_fill_distiller(palette = 'YlGn')
+
+ggplot()+
+  geom_raster(data = df.neon,
+              mapping = aes(x=x, y=y, fill = NEON_ortho_1)) +
+  coord_sf() +
+  scale_fill_viridis_c()
+
+# Adjusting an image's stretch
+
+# First we need to see what the bottom and top 2% values are
+quantile(values(neon[[1]]), c(0.02, 0.98))
+# The values are 44 and 154. So we can adjust our color scale to only show
+# values within this range, and clip the outliers.
+
+ggplot()+
+  geom_raster(data = df.neon,
+              mapping = aes(x=x, y=y, fill = NEON_ortho_1)) +
+  coord_sf() +
+  scale_fill_viridis_c(limits = c(44, 154))
+
+# This is actually not the best way, because now any data outside the range is NA
+
+# Here's another way
+# We adjust anything above the upper quantile to be equal to the upper limit
+df.neon2 <- df.neon %>%
+  mutate(NEON_ortho_1 = if_else(NEON_ortho_1 > 154, 154, NEON_ortho_1))
+
+# ifelse() vs if_else()
+# They both do the same thing, but ifelse() doesn't work well in dplyr pipelines
+# There's also ifel() which works on SpatRaters in terra.
+
+ggplot()+
+  geom_raster(data = df.neon2,
+              mapping = aes(x=x, y=y, fill = NEON_ortho_1)) +
+  coord_sf() +
+  scale_fill_viridis_c(limits = c(44, 154))
+
+red <- neon[[1]]
+
+mean(values(red))
+
+red * 2 # SpatRaster
+
+mean(values(2 * red))
+
+# Challenge: compute the NDGI
+# NDGI = (G - R) / (G + R)
+
+green <- neon[[2]]
+ndgi <- (green - red) / (green + red)
+df.ndgi <- as.data.frame(ndgi, xy = TRUE)
+
+ggplot() +
+  geom_raster(data = df.ndgi,
+              mapping = aes(x =x, y=y, fill = NEON_ortho_2)) +
+  coord_sf()
+
+
+
+
+
+
+```
