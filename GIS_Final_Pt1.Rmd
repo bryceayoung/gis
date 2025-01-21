@@ -1,0 +1,105 @@
+---
+title: "Part1_LiDAR"
+author: "Bryce A Young"
+date: "2024-05-10"
+output: html_document
+---
+
+INTRODUCTION
+The wildfire crisis has been measured in part by fire’s destructive impact on the human socioeconomic systems. As of 2022, the value of real estate in the wildland urban interface exceeds $1.5 trillion dollars and continues to grow (Karels 2022; Radeloff et al. 2018). Since 2016, just 5 fire complexes have resulted in the loss of over 27,000 homes and 200 lives (Calkin et al. 2023). US insurance companies have paid over $18 billion in wildfire damages in the last 6 years alone (2018-2023; Insurance Information Institute 2023a; Insurance Information Institute 2023b), and communities may suffer even greater losses ($5.5 billion in the 2023 Lahaina fires; US Fire Administration 2023). Importantly, the cause of these disasters is less related to the occurrence of natural wildland fire, and more related to the occurrence of civilization in fire-prone landscapes (Scott et al. 2016; Radeloff et al. 2018; Ager et al. 2021; Downing et al. 2022; Higuera et al. 2023). As long as the focus of management is on predicting and preventing unpredictable and unpreventable wildland fire, homes and infrastructure will continue to be destroyed and we will continue to feel the negative impacts of wildfire socially and economically.
+
+Therefore, reducing fire damage in communities requires a shift in research towards addressing an unanswered question: how do we quantify the underlying factors driving social and economic vulnerability to wildfire events (Mahmoud and Chulahwat 2018; Meldrum et al. 2022; Masoudvaziri et al. 2023; WMMC 2023)?
+
+While much research is being directed towards this end, there remains a gap to be filled by better characterization of wildfire risk to individual structures. Structure-based wildfire risk assessments are normally performed in person (Meldrum et al. 2022). They are used to rate the vulnerability of a home based on the attributes of the building and its home ignition zone (Maranghides et al. 2022). If the HIZ meets certain requirements, the home is deemed "defensible" (Heeren et al. 2023), meaning it is more likely to survive a destructive wildfire event. Based on a meticulous review of over 150 academic papers and models, there have been no published attempts in academia to characterize structure vulnerability using remotely sensed data and property records, although the private company Zesty.AI has developed a proprietary method that is not open to public scrutiny, and there may shortly be work published by UC Berkeley.
+
+Here I introduce a novel method that uses LiDAR to characterize a home's HIZ.
+
+HYPOTHESIS
+My hypothesis is that a home's defensible space as defined by the National Fire Protection Association (NFPA) [https://www.nfpa.org/en/downloadable-resources/safety-tip-sheets/how-to-prepare-your-home-for-wildfires] can be characterized using publicly-available airborne LiDAR data. Here, I make that attempt.
+
+TECHNICAL APPROACH, PART 1: LiDAR Processing
+My driving research question is how can defensible space be summed up into a single metric that can be analyzed by predictive models of a home's wildfire vulnerability? I attempt to process point clouds into rasters and calculate average max pixel height with an area-based approach at 1m resolution for each of a home's HIZ areas.
+
+INSTALL PACKAGES
+The primary package that I use for point cloud processing is a forestry-specific package `lidR`. Other packages that are commonly used for rasters, polygons and geospatial operations are `terra`, `sf` and `raster`. If these have not been installed in your current environment, you can install and load into your environment with the code below.
+
+```{r}
+
+packages <- c('lidR', 'terra', 'sf', 'raster')
+
+install.packages(packages)
+
+library(lidR)
+library(terra)
+library(sf)
+library(raster)
+
+```
+
+
+The data we are using today are subsets of two public datasets: Microsoft Building Footprints [https://github.com/Microsoft/USBuildingFootprints] and Colorado LiDAR [https://coloradohazardmapping.com/lidarDownload]. Because these datasets are very large, I have only provided small samples of them in the zip file. In order to obtain these samples, I created a LAS catalog of all the tiles in Gunnison County, and then queried the catalog [https://rdrr.io/cran/lidR/man/catalog_subset.html] to find the tile which intersected a single building footprint.
+
+The tile and the footprint can be loaded below. I used `las_check()` to validate the LAS file.
+
+```{r}
+
+# Save and define files
+las <- readLAS("Data/example_point_cloud.las")
+shp <- st_read("Data/example_footprint.shp")
+
+las_check(las)
+```
+
+`las_check` is a handy function in `lidR` that helps us understand the state of the file and tells us what we need to do before starting to work with it. I took the following steps: Filter duplicates, normalize height, filter out points below Z = 0. If the height is normalized, then every ground point should be '0', and we can check that with a histogram.
+
+```{r}
+
+las <- filter_duplicates(las)
+nlas <- normalize_height(las, knnidw())
+# We use filter_poi to filter points based on customized logical criteria
+nlas <- filter_poi(nlas, Z>0)
+# All ground points should be equal to 0. Let's check to make sure:
+hist(filter_ground(nlas)$Z, breaks = seq(-0.6, 0.6, 0.01),
+     main = "", xlab = "Elevation")
+
+```
+
+Now we can plot. This will appear as an interactive visual in a new window. The viewer can click, rotate and zoom around on the plot.
+
+```{r, echo = FALSE}
+
+plot(nlas)
+
+```
+
+The plot function is customizable. The default color schema maps to Z values in the plot function. Let's see a plot with the color schema mapped to intensity. Notice how the two homes in eastern (right hand side) third of the image are easily distinguished.
+
+```{r, echo = FALSE}
+
+plot(nlas, color = 'Intensity', breaks = 'quantile')
+
+```
+
+I then found that max height per 1m pixel with the `pixel_metrics` function in `lidR`, and plotted the results.
+
+```{r}
+
+hmax <- pixel_metrics(nlas, max(Z), res = 1)
+# View the rasters
+plot(hmax, col = hcl.colors(100, "YlOrRd"), main = "Max Ht per 1m Pixel")
+
+```
+
+To conclude Part 1 of this project, I saved the raster to the file in the data folder of my working directory.
+
+```{r}
+
+writeRaster(hmax, filename = 'Data/example_raster_hmax.tif')
+
+```
+
+Part 2 of this project uses a Python environment to create vector-based home ignition zones from the building footprint, clean and derive information from the raster we just created, and calculate metrics of the raster per home ignition zone.
+
+This concludes Part 1. Please open the next file in a Python environment that supports ipynb files.
+
+
